@@ -1,9 +1,12 @@
 package net.pixelpeely.stm;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.entity.player.PlayerEntity;
+import net.pixelpeely.stm.command.TrollCommand;
 import net.pixelpeely.stm.config.ModConfigs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +30,7 @@ public class STMMain implements ModInitializer {
 		cooldown = maxCooldown;
 
 		registerEvents();
+		CommandRegistrationCallback.EVENT.register(TrollCommand::register);
 
 		LOGGER.info("Server Trolling Mod Initialized.");
 	}
@@ -39,10 +43,24 @@ public class STMMain implements ModInitializer {
 				targets.add(player);
 		});
 
+		ServerPlayConnectionEvents.DISCONNECT.register((identifier, disconnect) -> {
+			PlayerEntity player = identifier.player;
+			targets.remove(player);
+		});
+
+		ServerPlayerEvents.AFTER_RESPAWN.register(((oldPlayer, newPlayer, alive) -> {
+			if (targets.contains(oldPlayer)){
+				targets.remove(oldPlayer);
+				targets.add(newPlayer);
+			}
+		}));
+
+		ServerTickEventHandler.registerEventExecution();
+
 		//OnServerTick: Count down, if the cooldown is at 0 execute a troll
 		ServerTickEvents.START_SERVER_TICK.register((world) -> {
 			if (cooldown == 0){
-				targets.forEach(TrollHandler::ExecuteTroll);
+				targets.forEach(TrollHandler::executeRandomTroll);
 				cooldown = maxCooldown;
 			}
 			else
