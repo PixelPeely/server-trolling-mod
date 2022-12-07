@@ -1,6 +1,7 @@
-package net.pixelpeely.stm;
+package net.pixelpeely.stm.util;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.pixelpeely.stm.STMMain;
 import net.pixelpeely.stm.config.ModConfigs;
 
 import java.util.ArrayList;

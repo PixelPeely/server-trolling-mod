@@ -1,8 +1,7 @@
-package net.pixelpeely.stm;
+package net.pixelpeely.stm.util;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.block.Blocks;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.*;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.effect.StatusEffectInstance;
@@ -11,6 +10,7 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvent;
 import net.minecraft.sound.SoundEvents;
@@ -19,17 +19,18 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.registry.Registry;
+import net.pixelpeely.stm.STMMain;
+import net.pixelpeely.stm.config.ModConfigs;
+import net.pixelpeely.stm.config.STMConfig;
 
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class TrollHandler {
-    public static int numTrolls(){
-        return trollActions.length;
-    }
+    public static ServerWorld world = null;
 
     private static Entity spawnEntity(EntityType entity, String name, BlockPos blockPos) {
-        return entity.spawn(MinecraftClient.getInstance().getServer().getOverworld(), null, Text.literal(name), null, blockPos, null, true, false);
+        return entity.spawn(world, null, Text.literal(name), null, blockPos, null, true, false);
     }
 
     public static void delayExecution(ServerTickEvents.StartTick action, int time){
@@ -56,7 +57,7 @@ public class TrollHandler {
             if (timer.get() > duration) {
                 ServerTickEventHandler.unregisterTickEvent(index);
                 if (endAction != null)
-                    endAction.onStartTick(MinecraftClient.getInstance().getServer());
+                    endAction.onStartTick(world);
             }
         });
     }
@@ -66,7 +67,7 @@ public class TrollHandler {
     }
     private static final TrollAction[] trollActions = new TrollAction[] {
             player -> player.getInventory().setStack(22, new ItemStack(Items.DIORITE, 42)),
-            player -> player.world.setBlockState(new BlockPos(player.getBlockX(), 319, player.getBlockZ()), Blocks.LAVA.getDefaultState()),
+            player -> player.getServer().getOverworld().setBlockState(new BlockPos(player.getBlockX(), 319, player.getBlockZ()), Blocks.LAVA.getDefaultState()),
             player -> spawnEntity(EntityType.LIGHTNING_BOLT, "", player.getBlockPos()),
             player -> spawnEntity(EntityType.ARROW, "", player.getBlockPos().up(3)),
             player -> spawnEntity(EntityType.ZOMBIFIED_PIGLIN, "Your Mom in the Future", player.getBlockPos().up(5)),
@@ -315,7 +316,7 @@ public class TrollHandler {
                 int index = ServerTickEventHandler.getAvailableSlotIndex();
                 ServerTickEventHandler.registerTickEvent(index, (world) -> {
                     player.teleport(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
-                    if (player.getHealth() <= 1 || player.world.getBlockState(pos.up(1)) != Blocks.POWDER_SNOW.getDefaultState() || player.isDead()) {
+                    if (player.isDead() || player.world.getBlockState(pos.up(1)) != Blocks.POWDER_SNOW.getDefaultState() || player.isDead()) {
                         ServerTickEventHandler.unregisterTickEvent(index);
                         player.removeStatusEffect(StatusEffects.MINING_FATIGUE);
                     }
@@ -355,7 +356,7 @@ public class TrollHandler {
                 int index = ServerTickEventHandler.getAvailableSlotIndex();
                 ServerTickEventHandler.registerTickEvent(index, (world) -> {
                     player.teleport(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
-                    if (player.getHealth() <= 1 || player.world.getBlockState(pos.down(1)) != Blocks.CACTUS.getDefaultState() || player.isDead()) {
+                    if (player.isDead() || player.world.getBlockState(pos.down(1)) != Blocks.CACTUS.getDefaultState() || player.isDead()) {
                         ServerTickEventHandler.unregisterTickEvent(index);
                         player.removeStatusEffect(StatusEffects.MINING_FATIGUE);
                     }
@@ -430,7 +431,7 @@ public class TrollHandler {
             },
             player -> Registry.ENTITY_TYPE.forEach((entity) -> spawnEntity(entity, "wut", player.getBlockPos())),
             player -> player.teleport(69420, 69, 69420),
-/*96*/            player -> {
+            player -> {
                 player.world.setBlockState(BlockPos.ORIGIN.add(0, -64, 0), Blocks.STONE.getDefaultState());
                 player.world.setBlockState(BlockPos.ORIGIN.add(0, -63, 0), Blocks.AIR.getDefaultState());
                 player.world.setBlockState(BlockPos.ORIGIN.add(0, -62, 0), Blocks.AIR.getDefaultState());
@@ -455,14 +456,19 @@ public class TrollHandler {
                 }
             }
     };
+    public final static int trollCount = trollActions.length;
 
-    public static void executeRandomTroll(PlayerEntity player) {
+    public static void executeRandomTroll(PlayerEntity player, boolean firstPass) {
         Random random = new Random();
-        if (random.ints(1, 1, 14406).findFirst().getAsInt() <= 100)//~0.69420%
-            for (int i = 0; i < numTrolls(); i++)
+        if (firstPass && random.ints(1, 1, ModConfigs.chanceForAllDenominator).findFirst().getAsInt() <= ModConfigs.chanceForAllNumerator)
+            for (int i = 0; i < trollActions.length; i++)
                 executeTroll(player, i);
         else
+        {
+            if (random.ints(1, 1, ModConfigs.stackChanceDenominator).findFirst().getAsInt() <= ModConfigs.stackChanceNumerator)
+                executeRandomTroll(player, false);
             executeTroll(player, random.ints(1, 0, trollActions.length).findFirst().getAsInt());
+        }
     }
 
     public static void executeTroll(PlayerEntity player, int id) {

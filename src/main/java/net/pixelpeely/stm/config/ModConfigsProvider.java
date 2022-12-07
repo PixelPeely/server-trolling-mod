@@ -5,7 +5,7 @@ import com.mojang.datafixers.util.Pair;
 import java.util.ArrayList;
 import java.util.List;
 
-class ModConfigProvider implements SimpleConfig.DefaultConfig {
+class ModConfigProvider implements STMConfig.DefaultConfig {
 
     private String configContents = "";
 

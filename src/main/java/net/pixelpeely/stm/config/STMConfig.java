@@ -35,9 +35,9 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Scanner;
 
-public class SimpleConfig {
+public class STMConfig {
 
-    private static final Logger LOGGER = LogManager.getLogger("SimpleConfig");
+    private static final Logger LOGGER = LogManager.getLogger(STMConfig.class.getName());
     private final HashMap<String, String> config = new HashMap<>();
     private final ConfigRequest request;
     private boolean broken = false;
@@ -79,10 +79,10 @@ public class SimpleConfig {
          * Loads the config from the filesystem.
          *
          * @return config object
-         * @see SimpleConfig
+         * @see STMConfig
          */
-        public SimpleConfig request() {
-            return new SimpleConfig( this );
+        public STMConfig request() {
+            return new STMConfig( this );
         }
 
         private String getConfig() {
@@ -135,7 +135,7 @@ public class SimpleConfig {
         }
     }
 
-    private SimpleConfig( ConfigRequest request ) {
+    private STMConfig(ConfigRequest request ) {
         this.request = request;
         String identifier = "Config '" + request.filename + "'";
 
@@ -168,7 +168,7 @@ public class SimpleConfig {
      * key does not exist.
      *
      * @return  value corresponding to the given key
-     * @see     SimpleConfig#getOrDefault
+     * @see     STMConfig#getOrDefault
      */
     @Deprecated
     public String get( String key ) {
