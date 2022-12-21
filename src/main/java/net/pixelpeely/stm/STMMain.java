@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.pixelpeely.stm.command.TrollCommand;
+import net.pixelpeely.stm.command.TrollSubjectCommand;
 import net.pixelpeely.stm.config.ModConfigs;
 import net.pixelpeely.stm.util.ServerTickEventHandler;
 import net.pixelpeely.stm.util.Trolls;
@@ -20,6 +21,7 @@ public class STMMain implements ModInitializer {
 	public static final String MOD_ID = "stm";
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 	public static final List<ServerPlayerEntity> targets = new ArrayList<>();
+	public static final List<ServerPlayerEntity> listeners = new ArrayList<>();
 	public static int maxCooldown;
 	public static int cooldown;
 
@@ -33,6 +35,7 @@ public class STMMain implements ModInitializer {
 
 		registerEvents();
 		CommandRegistrationCallback.EVENT.register(TrollCommand::register);
+		CommandRegistrationCallback.EVENT.register(TrollSubjectCommand::register);
 
 		LOGGER.info("Server Trolling Mod Initialized.");
 	}
@@ -41,20 +44,27 @@ public class STMMain implements ModInitializer {
 		//OnJoin: Add player to target list if name matches config
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
 			ServerPlayerEntity player = handler.player;
+			String name = player.getEntityName();
 
-			if (ModConfigs.targets.contains(player.getEntityName())) {
+			if (ModConfigs.targets.contains(name))
 				targets.add(player);
-			}
+			if (ModConfigs.listeners.contains(name))
+				listeners.add(player);
 		});
 
 		ServerPlayConnectionEvents.DISCONNECT.register((identifier, disconnect) -> {
 			targets.remove(identifier.player);
+			listeners.remove(identifier.player);
 		});
 
 		ServerPlayerEvents.AFTER_RESPAWN.register(((oldPlayer, newPlayer, alive) -> {
 			if (targets.contains(oldPlayer)) {
 				targets.remove(oldPlayer);
 				targets.add(newPlayer);
+			}
+			if (listeners.contains(oldPlayer)) {
+				listeners.remove(oldPlayer);
+				listeners.add(newPlayer);
 			}
 		}));
 
@@ -67,7 +77,7 @@ public class STMMain implements ModInitializer {
 				return;
 			}
 
-			targets.forEach((target) -> Trolls.trollPlayer(Trolls.getRandomTroll(), target));
+			targets.forEach((target) -> Trolls.getRandomTrolls().forEach(troll -> Trolls.trollPlayer(troll, target)));
 			cooldown = maxCooldown;
 		});
 	}

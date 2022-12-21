@@ -1,20 +1,30 @@
 package net.pixelpeely.stm.util;
 
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
+import com.mojang.brigadier.Message;
 import net.minecraft.block.Blocks;
+import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.enchantment.Enchantments;
 import net.minecraft.entity.*;
+import net.minecraft.entity.boss.dragon.EnderDragonEntity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.SlimeEntity;
+import net.minecraft.entity.mob.ZombieEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtElement;
+import net.minecraft.server.PlayerManager;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvent;
 import net.minecraft.sound.SoundEvents;
+import net.minecraft.stat.Stat;
 import net.minecraft.text.Style;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
@@ -23,6 +33,8 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.registry.Registry;
 import net.minecraft.world.World;
+import net.pixelpeely.stm.STMMain;
+import net.pixelpeely.stm.config.ModConfigs;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
@@ -32,10 +44,9 @@ import static net.pixelpeely.stm.util.Utils.scheduleSyncRepeatingTask;
 import static net.pixelpeely.stm.util.Utils.spawnEntity;
 
 public class Trolls {
-    public static final Map<String, Consumer<ServerPlayerEntity>> trolls = new HashMap<>();
+    public static final BiMap<String, Consumer<ServerPlayerEntity>> trolls = HashBiMap.create(); //Allows for getting the name of a troll with trolls.inverse().get(<troll lambda>)
 
     static {
-        registerTroll("RANDOM", player -> trollPlayer(getRandomTroll(), player));
         registerTroll("DIORITE", player -> player.getInventory().setStack(22, new ItemStack(Items.DIORITE, 42)));
         registerTroll("SKY_LAVA", player -> player.getServer().getOverworld().setBlockState(new BlockPos(player.getBlockX(), 319, player.getBlockZ()), Blocks.LAVA.getDefaultState()));
         registerTroll("SMITE", player -> spawnEntity(player.getWorld(), EntityType.LIGHTNING_BOLT, "", player.getBlockPos()));
@@ -44,7 +55,7 @@ public class Trolls {
         registerTroll("EXPLOSIVE_DIARRHEA", player -> spawnEntity(player.getWorld(), EntityType.CREEPER, "Explosive Diarrhea", new BlockPos(player.getEyePos().add(player.getRotationVector().multiply(-1, -1, -1))).down(1)));
         registerTroll("NAUSEA", player -> player.addStatusEffect(new StatusEffectInstance(StatusEffects.NAUSEA, 15*20, 255, true, false), null));
         registerTroll("TNT_UP", player -> spawnEntity(player.getWorld(), EntityType.TNT, "", player.getBlockPos().up(74)));
-        registerTroll("FIRE_15S", player -> player.setOnFireFor(300));
+        registerTroll("FIRE_5m", player -> player.setOnFireFor(20*300));
         registerTroll("MAGENTA_TERRACOTTA", player -> player.giveItemStack(new ItemStack(Items.MAGENTA_GLAZED_TERRACOTTA, 21)));
         registerTroll("INVISIBLE_SPODER", player -> ((LivingEntity) spawnEntity(player.getWorld(), EntityType.SPIDER, "Spoder", player.getBlockPos())).addStatusEffect(new StatusEffectInstance(StatusEffects.INVISIBILITY, Integer.MAX_VALUE, 1, true, false)));
         registerTroll("WATER_DROP", player -> {
@@ -181,7 +192,7 @@ public class Trolls {
             ItemStack item = new ItemStack(Items.CARVED_PUMPKIN);
             item.addEnchantment(Enchantments.BINDING_CURSE, 1);
 
-            player.getInventory().armor.set(3, item);
+            player.equipStack(EquipmentSlot.HEAD, item);
         });
         registerTroll("WITHERING_IRRITATION", player -> {
             player.addStatusEffect(new StatusEffectInstance(StatusEffects.WITHER, 300*20, 255, false, false));
@@ -209,7 +220,7 @@ public class Trolls {
                         else
                             player.world.setBlockState(pos, Blocks.OBSIDIAN.getDefaultState());
                     }
-            spawnEntity(player.getWorld(), EntityType.WARDEN, "Your mom after eating the impossible whopper", player.getBlockPos().down(3));
+            spawnEntity(player.getWorld(), EntityType.WARDEN, "Your mom after eating the impossible whopper", player.getBlockPos());
         });
         registerTroll("WANDERING_TRADER", player -> {
             for (int i = 0; i < 5; i++)
@@ -246,7 +257,7 @@ public class Trolls {
             int index = ServerTickEventHandler.getAvailableSlotIndex();
             ServerTickEventHandler.registerTickEvent(index, (world) -> {
                 player.getWorld().iterateEntities().forEach((entity -> {
-                    if (entity.getType() == EntityType.PLAYER)
+                    if (entity == null || entity.getType() == EntityType.PLAYER)
                         return;
 
                     entity.teleport(player.getX(), player.getY(), player.getZ());
@@ -258,32 +269,41 @@ public class Trolls {
 
         });
         registerTroll("MOB_NUKE", player -> player.getWorld().iterateEntities().forEach((entity -> {
+            if (entity == null)
+                return;
             EntityType type = entity.getType();
             ServerWorld world = player.getWorld();
 
-            if (type == EntityType.PLAYER || type == EntityType.TNT)
+            if (type == EntityType.TNT)
                 return;
 
-            world.spawnEntity(new TntEntity(EntityType.TNT, world));
+            TntEntity tnt = new TntEntity(EntityType.TNT, world);
+            tnt.setPosition(entity.getPos());
+            world.spawnEntity(tnt);
         })));
         registerTroll("INVINCIBLE_MOBS", player -> player.getWorld().iterateEntities().forEach(entity -> {
+            if (entity == null)
+                return;
             EntityType type = entity.getType();
 
-            if (type == EntityType.PLAYER || entity.distanceTo(player) > 100)
+            if (type == EntityType.PLAYER || entity.distanceTo(player) > 100 || !entity.isLiving())
                 return;
 
-            entity.setInvulnerable(true);
+            //Can't use setInvulnerable since mobs don't show the damage taking effect
+            ((LivingEntity) entity).addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, Integer.MAX_VALUE, 255));
             ((LivingEntity) entity).addStatusEffect(new StatusEffectInstance(StatusEffects.WITHER, Integer.MAX_VALUE, 255));
         }));
         registerTroll("NO_FOOD_MEGAMIND", player -> player.getHungerManager().setFoodLevel(-Integer.MAX_VALUE));
         registerTroll("END_TIME", player -> player.world.setBlockState(player.getBlockPos(), Blocks.END_PORTAL.getDefaultState()));
         registerTroll("FLYING_MOBS", player -> player.getWorld().iterateEntities().forEach(entity -> {
+            if (entity == null)
+                return;
             EntityType type = entity.getType();
 
-            if (type == EntityType.PLAYER || entity.distanceTo(player) > 100)
+            if (type == EntityType.PLAYER || entity.distanceTo(player) > 100 || !entity.isLiving())
                 return;
 
-            ((LivingEntity) entity).addStatusEffect(new StatusEffectInstance(StatusEffects.LEVITATION, 1, 75));
+            ((LivingEntity) entity).addStatusEffect(new StatusEffectInstance(StatusEffects.LEVITATION, 20, 75));
         }));
         registerTroll("NUCLEAR_WARHEAD", player -> spawnEntity(player.getWorld(), EntityType.TNT, "Nuclear Warhead", new BlockPos(player.getEyePos().add(player.getRotationVector().multiply(5, 5, 5))).down(1)));
         registerTroll("LEVITATING_OBSIDIAN_BOX", player -> {
@@ -303,24 +323,27 @@ public class Trolls {
             EntityType[] entities = {EntityType.ALLAY, EntityType.BAT, EntityType.BEE, EntityType.BLAZE, EntityType.GHAST, EntityType.PARROT, EntityType.PHANTOM, EntityType.VEX};
             for (EntityType entity : entities) {
                 LivingEntity livingEntity = ((LivingEntity)spawnEntity(player.getWorld(), entity, "I identify as a ghost", player.getBlockPos()));
-                livingEntity.addStatusEffect(new StatusEffectInstance(StatusEffects.INVISIBILITY, Integer.MAX_VALUE, 255, false, true));
-                livingEntity.addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, Integer.MAX_VALUE, 255, false, true));
+                livingEntity.addStatusEffect(new StatusEffectInstance(StatusEffects.INVISIBILITY, Integer.MAX_VALUE, 255, false, false));
+                livingEntity.addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, Integer.MAX_VALUE, 255, false, false));
             }
         });
         registerTroll("LEVITATING_MOBS", player -> {
             ServerWorld world = player.getWorld();
             world.iterateEntities().forEach(entity -> {
+                if (entity == null)
+                    return;
                 EntityType type = entity.getType();
 
-                if (type == EntityType.PLAYER || type == EntityType.ITEM || entity.distanceTo(player) > 100)
+                if (type == EntityType.PLAYER || type == EntityType.ITEM || entity.distanceTo(player) > 100 || !entity.isLiving())
                     return;
 
                 ((LivingEntity) entity).addStatusEffect(new StatusEffectInstance(StatusEffects.LEVITATION, Integer.MAX_VALUE, 1));
+                ((LivingEntity) entity).addStatusEffect(new StatusEffectInstance(StatusEffects.FIRE_RESISTANCE, Integer.MAX_VALUE, 1));
                 for (int x = -1; x <= 1; x++) {
                     for (int z = -1; z <= 1; z++) {
-                        for (int y = 0; y <= 319; y++) {
+                        for (int y = 0; y <= 319 - player.getBlockY(); y++) {
                             BlockPos pos = entity.getBlockPos().add(x, y, z);
-                            world.setBlockState(pos, Blocks.AIR.getDefaultState());
+                            world.setBlockState(pos, Blocks.AIR.getDefaultState());//restistance when mob party
                         }
                     }
                 }
@@ -377,7 +400,7 @@ public class Trolls {
             int index = ServerTickEventHandler.getAvailableSlotIndex();
             ServerTickEventHandler.registerTickEvent(index, (world) -> {
                 player.teleport(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
-                if (player.isDead() || player.world.getBlockState(pos.down(1)) != Blocks.CACTUS.getDefaultState() || player.isDead()) {
+                if (player.isDead() || player.world.getBlockState(pos.down(1)) != Blocks.CACTUS.getDefaultState()) {
                     ServerTickEventHandler.unregisterTickEvent(index);
                     player.removeStatusEffect(StatusEffects.MINING_FATIGUE);
                 }
@@ -389,6 +412,7 @@ public class Trolls {
             SlimeEntity slime = new SlimeEntity(EntityType.SLIME, world);
             slime.setSize(50, false);
             slime.addStatusEffect(new StatusEffectInstance(StatusEffects.SLOWNESS, Integer.MAX_VALUE, 255, true, false));
+            slime.setPosition(player.getPos());
             world.spawnEntity(slime);
         });
         registerTroll("LAVA_CAST", player -> {
@@ -399,28 +423,33 @@ public class Trolls {
             player.world.setBlockState(root.up(318), Blocks.COBBLESTONE.getDefaultState());
         });
         registerTroll("PORTAL_AMBIENCE", player -> scheduleSyncRepeatingTask((world) -> player.playSound(SoundEvents.BLOCK_PORTAL_AMBIENT, SoundCategory.PLAYERS, Integer.MAX_VALUE, 1), 120, 60*5*20, null));
-        registerTroll("CREEPER_SUICIDE", player -> ((LivingEntity)spawnEntity(player.getWorld(), EntityType.CREEPER, "a suicide bomber", player.getBlockPos())).addStatusEffect(new StatusEffectInstance(StatusEffects.INVISIBILITY, Integer.MAX_VALUE, 255, false, true)));
+        registerTroll("CREEPER_SUICIDE", player -> ((LivingEntity)spawnEntity(player.getWorld(), EntityType.CREEPER, "a suicide bomber", player.getBlockPos())).addStatusEffect(new StatusEffectInstance(StatusEffects.INVISIBILITY, Integer.MAX_VALUE, 255, false, false)));
         registerTroll("BLINDNESS", player -> player.addStatusEffect(new StatusEffectInstance(StatusEffects.BLINDNESS, 1200, 255, false, true)));
-        registerTroll("DROP_ITEM", player -> player.getInventory().dropSelectedItem(true));
-        registerTroll("DROP_INVENTORY", player -> {
+        registerTroll("DROP_ITEM", player -> {
+            player.dropStack(player.getMainHandStack());
+            player.getInventory().dropSelectedItem(true);
+        });
+        registerTroll("DROP_EQUIPMENT", player -> {
             for (EquipmentSlot slot : EquipmentSlot.values()) {
                 player.dropStack(player.getEquippedStack(slot));
                 player.equipStack(slot, ItemStack.EMPTY);
             }
         });
         registerTroll("FELL_INTO_WATER", player -> player.damage(new DamageSource("fell.accident.water"), Integer.MAX_VALUE));
-        registerTroll("HEROBRINE", player -> player.getServer().getPlayerManager().getPlayerList().forEach((serverPlayer) -> serverPlayer.sendMessage(Text
+        registerTroll("HEROBRINE", player -> player.sendMessage(Text
                 .literal("Herobrine joined the game")
-                .formatted(Formatting.YELLOW))));
+                .formatted(Formatting.YELLOW)));
         registerTroll("TNT_NUKE", player -> {
             player.addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, 20, 255));
             ServerWorld world = player.getWorld();
 
-            TntEntity tnt = new TntEntity(EntityType.TNT, world);
-            tnt.setFuse(0);
-
             for (int i = 0; i < 100; i++)
+            {
+                TntEntity tnt = new TntEntity(EntityType.TNT, world);
+                tnt.setPosition(player.getPos());
+                tnt.setFuse(0);
                 world.spawnEntity(tnt);
+            }
         });
         registerTroll("BOAT_DROP", player -> {
             Entity entity = spawnEntity(player.getWorld(), EntityType.BOAT, "WEEEEEEEEEEEEEEEEEEEE", player.getBlockPos().up(319));
@@ -436,8 +465,10 @@ public class Trolls {
                 player.world.setBlockState(pos.add(x, 0, 1), Blocks.REDSTONE_TORCH.getDefaultState());
             }
             for (int x = -1; x <= 1; x++)
-                for (int z = -1; z <= 1; z++)
+                for (int z = -1; z <= 1; z++){
                     player.world.setBlockState(pos.add(21 + x, -1, z), Blocks.LAVA.getDefaultState());
+                    player.world.setBlockState(pos.add(21 + x, 0, z), Blocks.AIR.getDefaultState());
+                }
             Entity entity = spawnEntity(player.getWorld(), EntityType.MINECART, "LOL", pos);
 
             int index = ServerTickEventHandler.getAvailableSlotIndex();
@@ -449,13 +480,14 @@ public class Trolls {
             });
         });
         registerTroll("ARMOR_STAND_HARASSMENT", player -> {
-            Entity entity = spawnEntity(player.getWorld(), EntityType.ARMOR_STAND, "", player.getBlockPos());
+            Entity entity = spawnEntity(player.getWorld(), EntityType.ARMOR_STAND, "I AM HARASSING YOU LOL", player.getBlockPos());
             entity.setInvulnerable(true);
             scheduleSyncRepeatingTask((world) -> entity.teleport(player.getX(), player.getY(), player.getZ()), 1, 1200, (world) -> entity.kill());
         });
         registerTroll("XP_FARM", player -> {
             BlockPos pos = player.getBlockPos();
             player.world.setBlockState(pos.down(1), Blocks.SCULK_CATALYST.getDefaultState());
+            player.world.setBlockState(pos.add(1, -1, 0), Blocks.SCULK.getDefaultState());
             scheduleSyncRepeatingTask((world) -> {
                 Entity entity = spawnEntity(player.getWorld(), EntityType.PIGLIN_BRUTE, "Best XP farm in town", pos);
                 entity.damage(DamageSource.FALL, Integer.MAX_VALUE);
@@ -464,7 +496,7 @@ public class Trolls {
         registerTroll("SPAWN_ALL", player -> Registry.ENTITY_TYPE.forEach((entity) -> spawnEntity(player.getWorld(), entity, "wut", player.getBlockPos())));
         registerTroll("TELEPORT_69420", player -> player.teleport(69420, 69, 69420));
         registerTroll("VOID_SPAWNPOINT", player -> {
-            player.world.setBlockState(BlockPos.ORIGIN.add(0, -64, 0), Blocks.STONE.getDefaultState());
+            player.world.setBlockState(BlockPos.ORIGIN.add(0, -64, 0), Blocks.BEDROCK.getDefaultState());
             player.world.setBlockState(BlockPos.ORIGIN.add(0, -63, 0), Blocks.AIR.getDefaultState());
             player.world.setBlockState(BlockPos.ORIGIN.add(0, -62, 0), Blocks.AIR.getDefaultState());
             player.setSpawnPoint(World.OVERWORLD, new BlockPos(0, -63, 0), 0, true, false);
@@ -493,15 +525,49 @@ public class Trolls {
         });
         registerTroll("ALL_EFFECTS", player -> Registry.STATUS_EFFECT.forEach((effect) -> player.addStatusEffect(new StatusEffectInstance(effect, 200, 255, false, true))));
         registerTroll("37_ROTTEN_FLESH", player -> player.giveItemStack(new ItemStack(Items.ROTTEN_FLESH, 37)));
+        registerTroll("KNOCKBACK_ZOMBIE", player -> { //Teleport to build limit and add slow falling
+            ZombieEntity zombie = (ZombieEntity)spawnEntity(player.getWorld(), EntityType.ZOMBIE, "OMG I KNOCKED ONE OF THEM", player.getBlockPos());
+            zombie.setBaby(true);
+            zombie.setInvulnerable(true);
+            ItemStack knockbackStick = new ItemStack(Items.STICK, 1);
+            knockbackStick.addEnchantment(Enchantments.KNOCKBACK, 127);
+            zombie.equipStack(EquipmentSlot.MAINHAND, knockbackStick);
+            scheduleSyncRepeatingTask((world) -> zombie.teleport(player.getX(), player.getY(), player.getZ()), 1, 2400, (world) -> zombie.kill());
+        });
+        registerTroll("LEAK_COORDINATES", player -> player.getServer().getPlayerManager().getPlayerList().forEach((serverPlayerEntity) -> {
+            if (serverPlayerEntity != player)
+                serverPlayerEntity.sendMessage(Text.of(player.getEntityName() + "'s coordinates are " + player.getPos() + "!"));
+        }));
+        registerTroll("DRAGON_FLIGHT", player -> {
+            player.addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, 1200, 255, false, false));
+            EnderDragonEntity entity = (EnderDragonEntity)spawnEntity(player.getWorld(), EntityType.ENDER_DRAGON, "How to train your dragon gone sexual at 3am (not clickbait)", player.getBlockPos());
+            int index = ServerTickEventHandler.getAvailableSlotIndex();
+            player.teleport(player.getX(), player.getY() + 20, player.getZ());
+            ServerTickEventHandler.registerTickEvent(index, (world) -> {
+                entity.teleport(player.getX(), player.getY(), player.getZ());
+                if (player.isDead() || entity.isDead()) {
+                    entity.kill();
+                    ServerTickEventHandler.unregisterTickEvent(index);
+                }
+            });
+        });
     }
 
-    public static Consumer<ServerPlayerEntity> getRandomTroll() {
-        List<Consumer<ServerPlayerEntity>> allTrolls = trolls.values().stream().toList();
+    public static List<Consumer<ServerPlayerEntity>> getRandomTrolls() {
+        if (Math.random() * ModConfigs.chanceForAllDenominator <= ModConfigs.chanceForAllNumerator)
+            return trolls.values().stream().toList();
 
-        return allTrolls.get((int) (Math.random() * allTrolls.size()));
+        List<Consumer<ServerPlayerEntity>> selectedTrolls = new ArrayList<>();
+        do {
+            selectedTrolls.add(trolls.values().stream().toList().get((int) (Math.random() * trolls.size())));
+            if (trolls.size() == ModConfigs.stackChanceMax) break;
+        } while ((Math.random() * ModConfigs.stackChanceDenominator <= ModConfigs.stackChanceNumerator));
+
+        return selectedTrolls;
     }
 
     public static void trollPlayer(Consumer<ServerPlayerEntity> troll, ServerPlayerEntity player) {
+        STMMain.listeners.forEach(listener -> listener.sendMessage(Text.of(player.getEntityName() + " was trolled by " + trolls.inverse().get(troll))));
         troll.accept(player);
     }
 

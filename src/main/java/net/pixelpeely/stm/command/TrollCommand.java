@@ -11,17 +11,29 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.pixelpeely.stm.util.Trolls;
 
+import java.util.Collection;
 import java.util.function.Consumer;
 
 public class TrollCommand {
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher, CommandRegistryAccess access, CommandManager.RegistrationEnvironment environment) {
-        dispatcher.register(CommandManager.literal("troll")
+        dispatcher.register(CommandManager.literal("troll").requires(serverCommandSource -> serverCommandSource.hasPermissionLevel(2))
                 .then(CommandManager.argument("target", EntityArgumentType.players())
                         .then(CommandManager.argument("trollId", StringArgumentType.string())
                                 .suggests(new TrollSuggestionProvider())
                                 .executes(context -> {
-                                    Consumer<ServerPlayerEntity> troll = Trolls.getTroll(StringArgumentType.getString(context, "trollId"));
+                                    Collection<ServerPlayerEntity> targets = EntityArgumentType.getPlayers(context, "target");
+                                    String id = StringArgumentType.getString(context, "trollId");
 
+                                    switch (id){
+                                        case "RANDOM":
+                                            Trolls.getRandomTrolls().forEach(troll -> targets.forEach(target -> Trolls.trollPlayer(troll, target)));
+                                            return 1;
+                                        case "ALL":
+                                            Trolls.trolls.values().forEach(troll -> targets.forEach(target -> Trolls.trollPlayer(troll, target)));
+                                            return 1;
+                                    }
+
+                                    Consumer<ServerPlayerEntity> troll = Trolls.getTroll(StringArgumentType.getString(context, "trollId"));
                                     if (troll == null) {
                                         context.getSource().getPlayer().sendMessage(Text
                                                 .literal("Please provide a valid troll ID.")
@@ -29,8 +41,7 @@ public class TrollCommand {
 
                                         return 1;
                                     }
-
-                                    EntityArgumentType.getPlayers(context, "target").forEach(target -> Trolls.trollPlayer(troll, target));
+                                    targets.forEach(target -> Trolls.trollPlayer(troll, target));
                                     return 1;
                                 }))));
     }
